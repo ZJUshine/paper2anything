@@ -47,6 +47,8 @@ def check_login(mcp_url: str) -> tuple[bool, str | None]:
 
 
 XHS_MAX_IMAGES = 18  # 小红书图集上限
+XHS_MAX_TAGS = 10    # 小红书话题上限（超出会被 mcp 静默截取前 10 个）
+PUBLISH_TIMEOUT = 600  # 秒；浏览器自动化逐图上传 + 正文逐字键入，近千字正文需 ≥5 分钟
 
 
 def _build_payload(workspace: dict, visibility: str) -> dict | None:
@@ -61,6 +63,10 @@ def _build_payload(workspace: dict, visibility: str) -> dict | None:
     body = post.get("body") or ""
     hashtags = post.get("hashtags") or post.get("tags") or []
     tags = [h.lstrip("#").strip() for h in hashtags if h and h.strip()]
+    if len(tags) > XHS_MAX_TAGS:
+        # mcp 会静默截取前 10 个，这里显式告警，免得多写的标签悄悄丢掉
+        print_warning(f"话题 {len(tags)} 个超过小红书 {XHS_MAX_TAGS} 个上限，丢弃：{'、'.join(tags[XHS_MAX_TAGS:])}")
+        tags = tags[:XHS_MAX_TAGS]
 
     # 正文去掉末尾的空行与话题行（话题改放 tags 字段，避免正文末尾与 tags 重复）
     lines = body.rstrip().split("\n")
@@ -126,8 +132,10 @@ def run(workdir: str, visibility: str, mcp_url: str) -> dict:
     )
 
     # 3) 发布
+    # 超时要留足：mcp 是浏览器自动化，逐图上传（每张约 5s）+ 正文逐字键入（近千字要 2 分钟以上）。
+    # 客户端提前断开会让服务端报「输入正文失败: context canceled」、帖子发不出去，故给 10 分钟。
     try:
-        resp = requests.post(f"{mcp_url}/api/v1/publish", json=payload, timeout=180)
+        resp = requests.post(f"{mcp_url}/api/v1/publish", json=payload, timeout=PUBLISH_TIMEOUT)
         body = resp.json()
     except requests.exceptions.RequestException as e:
         print_error(f"发布请求失败：{e}")

@@ -5,7 +5,7 @@ parse_pdf — MinerU 解析（云端 API 版）
   2. PUT 本地 PDF 到上传 URL
   3. 轮询 GET /extract-results/batch/{batch_id} 直到 state=done
   4. 下载 full_zip_url 并解压得到 *_content_list.json / 图片 等
-输出：paper_meta.json, sections.json, figures_index.json, references.json
+输出：paper_meta.json, sections.json, figures_index.json, tables_index.json, references.json
 """
 
 import io
@@ -174,13 +174,14 @@ def _find_mineru_output(output_dir: Path, pdf_stem: str) -> Path | None:
 
 
 def _parse_content_list(content_list_path: Path) -> tuple:
-    """解析 MinerU content_list.json → (meta, sections, figures, references)"""
+    """解析 MinerU content_list.json → (meta, sections, figures, tables, references)"""
     with open(content_list_path, "r", encoding="utf-8") as f:
         items = json.load(f)
 
     meta = {"title": "", "authors": [], "abstract": "", "keywords": []}
     sections = []
     figures = []
+    tables = []
     references = []
 
     current_section = None
@@ -252,8 +253,28 @@ def _parse_content_list(content_list_path: Path) -> tuple:
                     "_block_type": itype,  # image / chart：供高清重裁按对应 layout 池配 bbox
                 })
 
+        elif itype == "table":
+            # 结果表是小红书卡片最想引用的"硬数据"。MinerU 把表同时给出截图（img_path）
+            # 和重建的 HTML（table_body）：截图保排版与公式、html 便于在卡片里重排成
+            # 原生表格，两者都留给你按卡片设计取用。
+            img_path = item.get("img_path", "")
+            captions = item.get("table_caption") or item.get("caption") or []
+            if isinstance(captions, str):
+                captions = [captions]
+            caption = " ".join(c.strip() for c in captions if c and c.strip())
+            body = (item.get("table_body") or "").strip()
+            if img_path or body:
+                tables.append({
+                    "table_id": f"tab_{len(tables) + 1}",
+                    "caption": caption,
+                    "image_path": img_path,
+                    "table_html": body,
+                    "page": page,
+                    "_block_type": "table",
+                })
+
     flush_section()
-    return meta, sections, figures, references
+    return meta, sections, figures, tables, references
 
 
 def _parse_markdown(md_path: Path) -> tuple:
@@ -322,8 +343,8 @@ def _load_layout(mineru_out: Path) -> "dict | None":
 
 
 def _bbox_pools(layout: dict) -> dict:
-    """按 reading order 预聚合各页 image/chart 块 bbox（不排序，与 content 元素序对齐）。"""
-    pools = {"image": {}, "chart": {}}
+    """按 reading order 预聚合各页 image/chart/table 块 bbox（不排序，与 content 元素序对齐）。"""
+    pools = {"image": {}, "chart": {}, "table": {}}
     for page_idx, page in enumerate(layout.get("pdf_info", [])):
         for blk in page.get("para_blocks", []):
             bt = blk.get("type")
@@ -398,11 +419,15 @@ def _recrop_or_copy(mineru_out: Path, figures_dir: Path, pages_dir: Path,
                     it = dict(it); it["image_path"] = str(out_path)
                     done = True
         if not done:
-            src = Path(it["image_path"])
-            if not src.is_absolute():
-                src = mineru_out / src
-            if not src.exists() or src.stat().st_size < 1500:
-                continue  # 缺失或噪声碎片，不收进 figures_index
+            raw = it.get("image_path") or ""
+            src = mineru_out / raw if raw and not Path(raw).is_absolute() else Path(raw)
+            if not raw or not src.is_file() or src.stat().st_size < 1500:
+                # 表格只有重建 HTML、没有可用截图时仍要保留（卡片可用 table_html 重排原生表格）；
+                # 图则无图可用，直接丢弃。
+                if it.get("table_html"):
+                    it = dict(it); it["image_path"] = ""
+                    updated.append(it)
+                continue  # 缺失或噪声碎片，不收进索引
             dest = figures_dir / src.name
             shutil.copy2(src, dest)
             it = dict(it); it["image_path"] = str(dest)
@@ -410,16 +435,21 @@ def _recrop_or_copy(mineru_out: Path, figures_dir: Path, pages_dir: Path,
     return updated
 
 
-def _highres_figures(pdf_path, mineru_out: Path, figures_dir: Path, pages_dir: Path,
-                     figures: list) -> list:
-    """figure 图走"高清整页重裁优先、复用抽出图兜底"。清晰度来源：pdftoppm 300dpi 整页渲染
-    + MinerU layout.json 的 bbox（content_list 抽出图为降采样、偏糊）。"""
+def _highres_blocks(pdf_path, mineru_out: Path, figures_dir: Path, pages_dir: Path,
+                    figures: list, tables: list) -> tuple[list, list]:
+    """figure / table 图都走"高清整页重裁优先、复用抽出图兜底"。清晰度来源：pdftoppm 300dpi
+    整页渲染 + MinerU layout.json 的 bbox（content_list 抽出图为降采样、偏糊）。
+    整页只渲染一次，figure 与 table 共用同一份 pages/ 与 consumed 计数（按 kind 分池、互不干扰）。"""
     figures_dir.mkdir(parents=True, exist_ok=True)
     layout = _load_layout(mineru_out)
     pools = _bbox_pools(layout) if layout else {}
     have_pages = bool(layout) and _render_pages(Path(pdf_path), pages_dir)
-    return _recrop_or_copy(mineru_out, figures_dir, pages_dir, layout, pools, {},
-                           figures, have_pages, "figure_id")
+    consumed: dict = {}
+    figures = _recrop_or_copy(mineru_out, figures_dir, pages_dir, layout, pools, consumed,
+                              figures, have_pages, "figure_id")
+    tables = _recrop_or_copy(mineru_out, figures_dir, pages_dir, layout, pools, consumed,
+                             tables, have_pages, "table_id")
+    return figures, tables
 
 
 def _validate(meta: dict, sections: list) -> dict:
@@ -435,7 +465,8 @@ def _validate(meta: dict, sections: list) -> dict:
 
 def run(pdf_path: str, workdir: str) -> dict:
     """
-    MinerU 云端解析 PDF → parsed/ 下的 PIR（paper_meta / sections / figures_index / references）+ figures/
+    MinerU 云端解析 PDF → parsed/ 下的 PIR（paper_meta / sections / figures_index /
+    tables_index / references）+ figures/（图与表截图同放 figures/）
 
     输入：PDF 路径 + 工作区目录（<pdf目录>/.paper2anything/xhs/<stem>）
     输出：parsed/*.json、figures/*
@@ -477,6 +508,7 @@ def run(pdf_path: str, workdir: str) -> dict:
     meta = {"title": "", "authors": [], "abstract": "", "keywords": []}
     sections = []
     figures = []
+    tables = []
     references = []
 
     if mineru_out:
@@ -491,7 +523,7 @@ def run(pdf_path: str, workdir: str) -> dict:
 
         if content_list_path and content_list_path.exists():
             print_info("使用 content_list.json 解析")
-            meta, sections, figures, references = _parse_content_list(content_list_path)
+            meta, sections, figures, tables, references = _parse_content_list(content_list_path)
         else:
             # 备用：使用 Markdown
             md_candidates = list(mineru_out.glob("*.md"))
@@ -502,10 +534,10 @@ def run(pdf_path: str, workdir: str) -> dict:
                 print_error("MinerU 输出中未找到可解析文件")
                 return {"status": "failed", "error": "MinerU 输出无法解析"}
 
-        # figure 图：优先按 layout.json 的 bbox 从 pdftoppm 300dpi 整页渲染里高清重裁，
+        # figure / table 图：优先按 layout.json 的 bbox 从 pdftoppm 300dpi 整页渲染里高清重裁，
         # 无 bbox / 无页渲染时回退复用 MinerU 抽出图（含 <1.5KB 噪声跳过）
-        figures = _highres_figures(
-            pdf_path, mineru_out, figures_dir, workspace["root"] / "pages", figures)
+        figures, tables = _highres_blocks(
+            pdf_path, mineru_out, figures_dir, workspace["root"] / "pages", figures, tables)
     else:
         print_error("MinerU 未生成输出目录")
         return {"status": "failed", "error": "MinerU 未生成输出"}
@@ -531,11 +563,13 @@ def run(pdf_path: str, workdir: str) -> dict:
     save_json(meta, parsed_dir / "paper_meta.json")
     save_json(sections, parsed_dir / "sections.json")
     save_json(figures, parsed_dir / "figures_index.json")
+    save_json(tables, parsed_dir / "tables_index.json")
     save_json(references, parsed_dir / "references.json")
 
     print_success(f"论文标题: {meta['title'][:80]}")
     print_success(f"章节数量: {len(sections)}")
     print_success(f"图片数量: {len(figures)}")
+    print_success(f"表格数量: {len(tables)}")
     print_info(f"PIR 已保存至: {parsed_dir}")
 
     result = {
@@ -545,6 +579,7 @@ def run(pdf_path: str, workdir: str) -> dict:
         "stats": {
             "sections": len(sections),
             "figures": len(figures),
+            "tables": len(tables),
             "references": len(references),
         },
     }

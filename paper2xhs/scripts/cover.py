@@ -23,12 +23,28 @@ from utils import (
     save_stage_result,
 )
 
-_CJK_FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+_CJK_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",          # Linux (WenQuanYi)
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Linux (Noto)
+    "/System/Library/Fonts/PingFang.ttc",                    # macOS
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",            # macOS
+    "/System/Library/Fonts/Supplemental/Songti.ttc",         # macOS
+    "C:/Windows/Fonts/msyh.ttc",                             # Windows
+)
+
+
+def _cjk_font_path() -> str:
+    """返回本机第一个可用的中文字体路径；找不到就抛错，让上层回退。"""
+    for p in _CJK_FONT_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    raise OSError(f"未找到可用中文字体，已尝试: {', '.join(_CJK_FONT_CANDIDATES)}")
 
 
 def _fit_font(draw, text: str, max_w: int, max_h: int, start: int = 110, min_size: int = 48):
     """断行（拉丁/数字串不拆），递减字号直到 text 能塞进 max_w×max_h，返回 (font, lines, line_h)。"""
     from PIL import ImageFont
+    cjk_font = _cjk_font_path()
     size = start
     lines = [text]
     # 断行单元：连续拉丁字母/数字算一个不可断单元（"NeurIPS 2025" 不被拆成 "202"+"5"），
@@ -38,7 +54,7 @@ def _fit_font(draw, text: str, max_w: int, max_h: int, start: int = 110, min_siz
     # 若该字符是收尾标点就挂在行尾、宁可轻微超宽。直双引号 " 兼作开/闭，按出现奇偶判定（第偶数个为闭）。
     no_start = "”’）)】》」』〉］｝》>，。、；;：:？?！!…·"
     while size >= min_size:
-        font = ImageFont.truetype(_CJK_FONT, size)
+        font = ImageFont.truetype(cjk_font, size)
         lines, cur, dq = [], "", 0
         for unit in units:
             closing = unit in no_start or (unit == '"' and dq % 2 == 1)
@@ -57,7 +73,7 @@ def _fit_font(draw, text: str, max_w: int, max_h: int, start: int = 110, min_siz
         if line_h * len(lines) <= max_h:
             return font, lines, line_h
         size -= 6
-    return ImageFont.truetype(_CJK_FONT, min_size), lines, int(min_size * 1.32)
+    return ImageFont.truetype(cjk_font, min_size), lines, int(min_size * 1.32)
 
 
 def _hex2rgb(s: str, default: tuple) -> tuple:
@@ -85,7 +101,9 @@ def _compose_xhs_cover(fig_path: Path, cover_text: str, out_path: Path,
     """合成小红书竖版封面（3:4）：深色底 + 顶部 cover_text 大字 + 白卡内嵌等比原图。失败返回 False。"""
     try:
         from PIL import Image, ImageDraw
-        if not os.path.exists(_CJK_FONT):
+        try:
+            _cjk_font_path()
+        except OSError:
             return False
         bg, accent = _cover_colors(understanding)
         txt = _title_color(bg)
