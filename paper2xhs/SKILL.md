@@ -15,7 +15,8 @@ allowed-tools: Bash, Read, Write, Glob, Grep, AskUserQuestion, SendUserFile
 PDF
  → 解析            (parse_pdf.py：MinerU → parsed/ + figures/，图与表都进 PIR)
  → 你读懂论文       (读 parsed/ + 看 figures/) → understanding/paper_understanding.json   [确认选题角度]
- → 你写五问式正文    (Q1~Q5 + 标题/标签/封面文字) → xhs_post.json + xhs_post.md          [确认文案]
+ → 你写五问式详细版  (Q1~Q5，不设字数上限) → xhs_post_detailed.md                     [交人工精简]
+ → 人工精简出最终版  (标题/标签/封面文字) → xhs_post.json + xhs_post.md               [确认文案]
  → 你手写配图卡片    (一问一图：post_cards/p1.html … p5.html，嵌论文原图与表格数据)
  → 封面+卡片渲染    (cover.py 封面：默认 API 生图 gpt-image-2、无 key 回退本地合成；
                     render_cards.py：无头 chromium 把卡片 HTML 截成 1080×1440 竖版 PNG)
@@ -33,7 +34,9 @@ PDF
    其中 `$pdf_path` 是用户给的论文 PDF 路径（每个块都重新设一次）。脚本在 `${SKILL_DIR}/scripts`——`SKILL_DIR`
    是**本 skill 的目录**（见本 skill 顶部注入的 "Base directory for this skill: …"）；各 Bash 块独立 shell，
    用到它的块开头按需 `export SKILL_DIR=<那个目录>` 一次（和 `WORKDIR` 一样每块现设）。
-3. **在两个决策点用 `AskUserQuestion` 暂停**：① 读懂论文后确认“选题角度”；② 文案成稿后确认。用户想改，可直接改产物 JSON/MD 或告诉你改。
+3. **在两个决策点用 `AskUserQuestion` 暂停**：① 读懂论文后确认“选题角度”；② 文案成稿后确认。**第②处是硬性关卡，不可跳过、不可自行判断“看起来没问题就继续”**——哪怕处于自动/免确认模式，文案确认这一步也必须停下来等用户明确回应，拿到确认或改稿意见之前**不进入 Step 4（封面与配图卡片）**。
+   文案本身分两步：你先写**不设字数上限的详细版**（`xhs_post_detailed.md`），交给用户**人工精简**成最终短文案，
+   你负责把精简结果落成 `xhs_post.json`/`.md` 并再确认一次——**精简取舍权在用户，你不要自己抢着先压缩一遍**。
 4. **小红书是“准确、不夸大的科普”**：忠实反映论文贡献，口语化、有钩子，但**绝不编造数据或夸大结论**。
 5. **正文是固定的五问模板**（Step 3），**配图是你手写的 HTML 卡片、一问一图**（Step 4）——
    配图**不再是论文原图直出**，而是把原图与表格数据嵌进你设计的卡片里再截图。
@@ -128,7 +131,8 @@ conda run -n paper2anything --no-capture-output \
 
 ## Step 3：写小红书帖子（你来做）[确认]
 
-按小红书风格**亲自撰写**，用 `Write` 落 `xhs_post.json` 和 `xhs_post.md`。
+**分两步走：你先写不受字数限制的详细版，人工在此基础上精简出最终版**——不要跳过详细版直接一步到位写短文案，
+精简取舍是用户的活，你的活是把材料摊全。
 
 **正文走固定的五问模板**——每篇论文都是这五问、这个顺序，**问句原文照抄、不许改写**，
 在正文里作为小标题出现（这样才能和 Step 4 的一问一图卡片对齐）：
@@ -140,6 +144,23 @@ conda run -n paper2anything --no-capture-output \
 | Q3 | 论文如何解决这个问题？ | 核心思路 + 关键设计，拆成读者能跟上的 2–3 步 |
 | Q4 | 论文做了哪些实验？ | 在什么数据/基线上测的 + **具体数字**（几个点、多少倍），数字必须来自论文 |
 | Q5 | 论文有哪些启发？ | 对读者的实际价值：能用在哪、什么值得借鉴、留下什么开放问题 |
+
+### 3a：详细版初稿（你写，不设字数上限）
+
+用 `Write` 落 `xhs_post_detailed.md`：按上表五问，每问一个 `## Q1 ...` 小节，**不设字数硬顶**——
+把论文里能支撑这问的信息尽量摊开写全（背景铺垫、多个数据点、多层次推理都可以先写进去，
+比最终版长很多也没关系，比如每问 300–600 字甚至更多）。**这一步不用照顾小红书正文的字数上限**，
+目的是给用户提供充分、准确的原材料，而不是替用户先压缩一遍——别自己悄悄按最终版的字数标准来写。
+
+写完把 `xhs_post_detailed.md` 的内容发给用户（或提示去看这个文件），明确告诉用户：
+**最终发布用的短文案由用户人工精简**，不是你自动压缩决定取舍；用户可以直接编辑这个文件，
+也可以在对话里告诉你想保留哪些点、砍掉哪些点。
+
+### 3b：最终版（人工精简的结果，你负责落地成 schema）
+
+拿到用户精简后的文本（用户直接改的文件内容，或口述的取舍方向）后，你再据此整理出正式的
+`xhs_post.json` 和 `xhs_post.md`——**取舍判断权在用户，你不要自作主张地二次改写或再精简**，
+你的活是把用户定下的内容按下面的规则和 schema 整理规范：
 
 - **字数**：每问答案 **100–160 字**，全文正文（含钩子与结尾）**控制在 600–900 字**，不含标签。
   小红书正文上限 1000 字（`publish.py` 会 `[:1000]` 硬截断），留 ≥100 字余量，别顶格。
@@ -173,7 +194,11 @@ conda run -n paper2anything --no-capture-output \
 
 `xhs_post.md`：第一行 `# {title}`，然后正文；可在顶部放 `![封面](cover.png)` 占位（封面在 Step 4 生成）。
 
-写完用 `AskUserQuestion` 给用户看标题 + 五问答案摘要，确认或按反馈修改（可直接改 JSON/MD）。
+落完最终版用 `AskUserQuestion` 给用户看标题 + 五问答案摘要，确认这就是用户精简后想要的样子（可能用户精简时有笔误或想再调整）。
+
+> **硬性关卡**：最终版文案未经用户明确确认，**不得进入 Step 4 生成封面/配图卡片**；同样，`xhs_post_detailed.md`
+> 未交给用户精简、拿到精简结果之前，**不得跳过 3a/3b 自己直接定稿**。用户提出修改就改完再问一次，
+> 直到拿到明确的"可以/确认"再往下走——不要因为看起来已经写得不错就自行放行，更不要替用户完成精简这一步。
 
 ---
 
@@ -321,7 +346,8 @@ cp "$WORKDIR/xhs_post.md" "$WORKDIR/xhs_post.json" "$DEST/"
 | `.paper2anything/xhs/<stem>/parsed/` | MinerU PIR（meta/sections/figures_index/tables_index/references） | parse_pdf |
 | `.paper2anything/xhs/<stem>/figures/` | 论文插图与表格截图实体 | parse_pdf |
 | `.paper2anything/xhs/<stem>/understanding/paper_understanding.json` | 论文理解 + important_figures + post_cards | **你** |
-| `.paper2anything/xhs/<stem>/xhs_post.json` `xhs_post.md` | 五问式文案 | **你** |
+| `.paper2anything/xhs/<stem>/xhs_post_detailed.md` | 五问式详细版初稿（不设字数上限，供人工精简） | **你**（3a） |
+| `.paper2anything/xhs/<stem>/xhs_post.json` `xhs_post.md` | 人工精简后的五问式最终文案 | 用户精简、**你**落地成 schema（3b） |
 | `.paper2anything/xhs/<stem>/cover.png` | 封面 | cover |
 | `.paper2anything/xhs/<stem>/post_cards/` | 配图卡片源码 `p1.html … p5.html` | **你** |
 | `.paper2anything/xhs/<stem>/post_images/` | 卡片渲染图 `p1.png … p5.png`（2160×2880） | render_cards |
