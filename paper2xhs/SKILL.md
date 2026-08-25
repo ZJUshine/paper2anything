@@ -15,7 +15,7 @@ allowed-tools: Bash, Read, Write, Glob, Grep, AskUserQuestion, SendUserFile
 PDF
  → 解析            (parse_pdf.py：MinerU → parsed/ + figures/，图与表都进 PIR)
  → 你读懂论文       (读 parsed/ + 看 figures/) → understanding/paper_understanding.json   [确认选题角度]
- → 你写五问式详细版  (Q1~Q5，不设字数上限) → xhs_post_detailed.md                     [交人工精简]
+ → 你写五问式详细版  (开头照抄论文原标题 + Q1~Q5，不设字数上限) → xhs_post_detailed.md   [交人工精简]
  → 人工精简出最终版  (标题/标签/封面文字) → xhs_post.json + xhs_post.md               [确认文案]
  → 你手写配图卡片    (一问一图：post_cards/p1.html … p5.html，嵌论文原图与表格数据)
  → 封面+卡片渲染    (cover.py 封面：默认 API 生图 gpt-image-2、无 key 回退本地合成；
@@ -147,7 +147,8 @@ conda run -n paper2anything --no-capture-output \
 
 ### 3a：详细版初稿（你写，不设字数上限）
 
-用 `Write` 落 `xhs_post_detailed.md`：按上表五问，每问一个 `## Q1 ...` 小节，**不设字数硬顶**——
+用 `Write` 落 `xhs_post_detailed.md`：**开头先照抄论文英文原标题**（从 `parsed/paper_meta.json` 的 `title`
+取，不许改写、不许缩写），再按上表五问，每问一个 `## Q1 ...` 小节，**不设字数硬顶**——
 把论文里能支撑这问的信息尽量摊开写全（背景铺垫、多个数据点、多层次推理都可以先写进去，
 比最终版长很多也没关系，比如每问 300–600 字甚至更多）。**这一步不用照顾小红书正文的字数上限**，
 目的是给用户提供充分、准确的原材料，而不是替用户先压缩一遍——别自己悄悄按最终版的字数标准来写。
@@ -162,12 +163,17 @@ conda run -n paper2anything --no-capture-output \
 `xhs_post.json` 和 `xhs_post.md`——**取舍判断权在用户，你不要自作主张地二次改写或再精简**，
 你的活是把用户定下的内容按下面的规则和 schema 整理规范：
 
-- **字数**：每问答案 **100–160 字**，全文正文（含钩子与结尾）**控制在 600–900 字**，不含标签。
-  小红书正文上限 1000 字（`publish.py` 会 `[:1000]` 硬截断），留 ≥100 字余量，别顶格。
-  超了就砍，别靠缩写硬塞——放不下的细节留给卡片。
+- **字数**：每问答案 **100–160 字**，正文主体（钩子 + 五问五答 + 结尾）**控制在 600–900 字**，
+  **开头的论文标题行另计**（标题不许为了省字数而缩写），不含标签。
+  小红书正文上限 1000 字（`publish.py` 会 `[:1000]` 硬截断），**标题行 + 正文主体合计留 ≥100 字余量**，别顶格——
+  英文标题往往 60–120 字符，先把它的实际长度扣掉再排五问预算。超了就砍五问，别砍标题、别靠缩写硬塞——
+  放不下的细节留给卡片。
   **注意 Latin 词与数字按实际字符计**（`Qwen2.5-7B`＝10 字、`74.00` ＝5 字），中文写作直觉会严重低估；
   超预算时先删枚举（模型名清单、agent 名清单）再删修饰，别删可回溯的数字。
-- **结构**：开头 1–2 句钩子（≤40 字）→ Q1…Q5 五段 → 结尾 1 句互动引导（如“你觉得这方法能用在哪？”）→ 标签。
+- **结构**：**开头第一行放论文英文原标题**（`📄` 或同类 emoji 起头，原文照抄 `parsed/paper_meta.json` 的
+  `title`，不翻译、不改写、不缩写；过长可折行但不许截断）→ 空行 → 1–2 句钩子（≤40 字）→ Q1…Q5 五段
+  → 结尾 1 句互动引导（如“你觉得这方法能用在哪？”）→ 标签。
+  标题行让读者一眼知道是哪篇论文、方便自己去检索原文，**是硬性要求，不可省略**。
 - **每问小标题前带一个 emoji**，五个 emoji 各不相同，和卡片上的序号徽标呼应。
 - **风格**：口语化、易读、不端学术腔，但**忠实准确、不夸大、不编数据**。Q4 的每个数字都要能在 `parsed/` 里查到出处。
 - **标题** ≤20 字，吸睛：含核心价值、或数字、或对比、或悬念式提问。
@@ -177,6 +183,7 @@ conda run -n paper2anything --no-capture-output \
 产物 schema —— `xhs_post.json`：
 ```json
 {"title": "...",
+ "paper_title": "论文英文原标题（照抄 parsed/paper_meta.json 的 title，不翻译不缩写）",
  "hook": "开头 1–2 句钩子",
  "qa": [
    {"q": "Q1", "question": "论文的主要内容是什么？", "answer": "100–160 字"},
@@ -186,15 +193,17 @@ conda run -n paper2anything --no-capture-output \
    {"q": "Q5", "question": "论文有哪些启发？",       "answer": "..."}
  ],
  "ending": "结尾互动句",
- "body": "把 hook + 五问五答 + ending + 标签拼成的完整正文（含 emoji/换行）",
+ "body": "把 paper_title + hook + 五问五答 + ending + 标签拼成的完整正文（含 emoji/换行），第一行必须是论文标题",
  "hashtags": ["#标签1", "#标签2"], "cover_text": "≤15字封面词", "paper_title_zh": "论文中文标题"}
 ```
 `qa` 是结构化来源、**必须是这 5 条**（`render_cards.py` 用它的条数校验一问一图）；`body` 是拼装好的成品，
 **发布脚本只读 `body`**——两者要一致，改了 `qa` 记得同步 `body`。
+`body` 的**第一行必须是 `paper_title`**（前缀 emoji 可有）：发布只用 `body`，标题行漏在 `body` 外就等于没加。
+落稿后自查一次 `body` 开头，确认标题与 `parsed/paper_meta.json` 的 `title` 逐字一致。
 
 `xhs_post.md`：第一行 `# {title}`，然后正文；可在顶部放 `![封面](cover.png)` 占位（封面在 Step 4 生成）。
 
-落完最终版用 `AskUserQuestion` 给用户看标题 + 五问答案摘要，确认这就是用户精简后想要的样子（可能用户精简时有笔误或想再调整）。
+落完最终版用 `AskUserQuestion` 给用户看小红书标题 + **正文开头的论文标题行** + 五问答案摘要，确认这就是用户精简后想要的样子（可能用户精简时有笔误或想再调整）。
 
 > **硬性关卡**：最终版文案未经用户明确确认，**不得进入 Step 4 生成封面/配图卡片**；同样，`xhs_post_detailed.md`
 > 未交给用户精简、拿到精简结果之前，**不得跳过 3a/3b 自己直接定稿**。用户提出修改就改完再问一次，
@@ -362,6 +371,7 @@ cp "$WORKDIR/xhs_post.md" "$WORKDIR/xhs_post.json" "$DEST/"
 
 - **MinerU 解析失败**：核对 `.env` 的 `MINERU_API_TOKEN`（在 https://mineru.net 申请）；PDF 应 ≤200MB / ≤200 页；能访问 `mineru.net`。重跑 Step 1 即可（覆盖）。
 - **封面没生成（`skipped`）**：通常是既没配可用 `OPENAI_API_KEY`、又没有可复用的论文原图。配上 key 走 AI 生图，或确保 `understanding.important_figures` 有 `suitable_for_cover:true` 且 `image_path` 存在的图以供本地合成回退。
+- **发出去的正文没带论文标题**：`paper_title` 只填在字段里、没拼进 `body`——发布脚本只读 `body`，标题行必须是 `body` 的第一行；顺手核对它与 `parsed/paper_meta.json` 的 `title` 逐字一致（别用中文译名或缩写替代）。
 - **卡片没生成（`failed: post_cards 下无 p<N>.html`）**：卡片是**你手写**的，脚本只负责截图。先按 `references/card-design.md` 把 `$WORKDIR/post_cards/p1.html … p5.html` 写出来再跑。
 - **卡片渲染自检 FAIL**：
   - *图裂* → `<img src>` 必须是 `../figures/<文件名>`（卡片在 `post_cards/`、图在 `figures/`），文件名从 `figures_index.json`/`tables_index.json` 抄，别手打哈希名。
