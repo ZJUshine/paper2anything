@@ -69,7 +69,7 @@ conda run -n paper2anything --no-capture-output \
   python "${SKILL_DIR}/scripts/publish.py" --workdir "$WORKDIR" --visibility "公开可见"
 ```
 
-`title`≤20 字、`content`≤1000 字、`images` 为封面 + `post_images/` 配图的**本地绝对路径**列表（含封面最多 18 张）、`visibility` 可选「公开可见 / 仅自己可见 / 仅互关好友可见」。
+`title`≤20 字、`content`≤1000 字、`images` 为封面 + `post_images/` 配图的**本地绝对路径**列表（含封面最多 9 张）、`visibility` 可选「公开可见 / 仅自己可见 / 仅互关好友可见」。
 
 ## 坑速查
 - **登录成功后要重启 mcp 才会加载 cookies**：mcp 仅在启动时读 `cookies.json`。首次登录拿到 cookies 后重启一次（无头机顺便去掉 monitor flag），status 才会变 `is_logged_in:true`。

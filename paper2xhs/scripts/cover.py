@@ -235,7 +235,7 @@ def generate_cover(client, understanding: dict, title: str, subtitle: str, outpu
 
     try:
         response = client.images.generate(
-            model=os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2"),
+            model=os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare"),
             prompt=prompt,
             size="1152x1536",  # 竖版 3:4 比例（小红书最常用封面比例）
             quality="high",

@@ -25,6 +25,8 @@ from pathlib import Path
 import _env  # noqa: F401  # 独立运行时兜底加载包根 .env
 
 from utils import (
+    MAX_CARDS,
+    XHS_MAX_IMAGES,
     load_json,
     print_error,
     print_info,
@@ -38,6 +40,7 @@ from utils import (
 CARD_W = 1080   # 小红书竖版 3:4
 CARD_H = 1440
 SCALE = 2       # 2x 输出（2160×2880），保证小字在手机上不糊
+# MAX_CARDS（= 图集上限 − 封面 1 张）见 utils.py，publish.py 会把超出的静默截掉
 
 # 渲染层自检：与 paper2html/scripts/render_check.py 同源，裁到卡片场景需要的四项
 _JS = r"""
@@ -81,8 +84,9 @@ def _card_index(p: Path) -> int:
     return int(re.sub(r"\D", "", p.stem) or "0")
 
 
-def _expected_card_count(workspace: dict) -> int | None:
-    """xhs_post.json 的 qa 条数——一问一图，卡片数应与问题数一致。读不到就不校验。"""
+def _question_count(workspace: dict) -> int | None:
+    """xhs_post.json 的 qa 条数——每问至少一张卡，所以它是卡片数的**下限**（不是等号：
+    一问信息多可以拆成连续几张，五问之外还能加扩展卡）。读不到就不校验。"""
     post_path = workspace["xhs"] / "xhs_post.json"
     if not post_path.exists():
         return None
@@ -121,14 +125,19 @@ def run(workdir: str, width: int = CARD_W, height: int = CARD_H, scale: int = SC
                    key=_card_index)
     if not cards:
         print_error(f"没有找到卡片 HTML：{cards_dir}/p1.html …")
-        print_info("一问一图：正文每个问题对应一张卡片，先按 references/card-design.md 手写它们")
+        print_info(f"每问至少一张卡（可拆卡、可加扩展卡，共 5~{MAX_CARDS} 张），"
+                   "先按 references/card-design.md 手写它们")
         result = {"status": "failed", "error": f"{cards_dir} 下无 p<N>.html"}
         save_stage_result(result, "render_cards", workspace)
         return result
 
-    expected = _expected_card_count(workspace)
-    if expected is not None and expected != len(cards):
-        print_warning(f"卡片 {len(cards)} 张 ≠ 正文问题 {expected} 个——一问一图，请对齐后重跑")
+    n_questions = _question_count(workspace)
+    if n_questions is not None and len(cards) < n_questions:
+        print_warning(f"卡片 {len(cards)} 张 < 正文问题 {n_questions} 个"
+                      "——每问至少一张卡，有问题没配到图，请补齐后重跑")
+    if len(cards) > MAX_CARDS:
+        print_warning(f"卡片 {len(cards)} 张 > 上限 {MAX_CARDS} 张（图集 {XHS_MAX_IMAGES} 张 − 封面 1 张）"
+                      f"——发布时第 {MAX_CARDS + 1} 张起会被静默丢掉，先合并或删卡")
 
     try:
         from playwright.sync_api import sync_playwright
@@ -182,7 +191,8 @@ def run(workdir: str, width: int = CARD_W, height: int = CARD_H, scale: int = SC
         "status": "success" if not failed else "failed",
         "count": len(images),
         "images": images,
-        "expected_cards": expected,
+        "question_count": n_questions,
+        "max_cards": MAX_CARDS,
         "failed_cards": failed,
         "size": f"{width}x{height}@{scale}x",
         "reports": reports,

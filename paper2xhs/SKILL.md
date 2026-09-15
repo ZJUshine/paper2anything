@@ -1,6 +1,6 @@
 ---
 name: paper2xhs
-description: 把学术论文 PDF 转成小红书多图帖（标题 + 五问式正文 + 标签 + 封面 + 一问一图的设计卡片）。你主导设计的协调式：机械活（MinerU 解析 PDF、生成封面、卡片 HTML 截图、半自动发布）交给 scripts/ 下的小工具，论文理解、选题角度、文案撰写、卡片设计由你亲自完成并在关键点与用户确认。当用户说“论文转小红书”、“paper2xhs”、“把这篇论文发小红书”、“论文转社交媒体”、“PDF 转小红书帖子”时触发。
+description: 把学术论文 PDF 转成小红书多图帖（标题 + 五问式正文 + 标签 + 封面 + 每问至少一张的设计卡片）。你主导设计的协调式：机械活（MinerU 解析 PDF、生成封面、卡片 HTML 截图、半自动发布）交给 scripts/ 下的小工具，论文理解、选题角度、文案撰写、卡片设计由你亲自完成并在关键点与用户确认。当用户说“论文转小红书”、“paper2xhs”、“把这篇论文发小红书”、“论文转社交媒体”、“PDF 转小红书帖子”时触发。
 allowed-tools: Bash, Read, Write, Glob, Grep, AskUserQuestion, SendUserFile
 ---
 
@@ -17,7 +17,7 @@ PDF
  → 你读懂论文       (读 parsed/ + 看 figures/) → understanding/paper_understanding.json   [确认选题角度]
  → 你写五问式详细版  (开头照抄论文原标题 + Q1~Q5，不设字数上限) → xhs_post_detailed.md   [交人工精简]
  → 人工精简出最终版  (标题/标签/封面文字) → xhs_post.json + xhs_post.md               [确认文案]
- → 你手写配图卡片    (一问一图：post_cards/p1.html … p5.html，嵌论文原图与表格数据)
+ → 你手写配图卡片    (post_cards/p1.html … pN.html，每问至少一张、共 5~8 张，嵌论文原图与表格数据)
  → 封面+卡片渲染    (cover.py 封面：默认 API 生图 gpt-image-2、无 key 回退本地合成；
                     render_cards.py：无头 chromium 把卡片 HTML 截成 1080×1440 竖版 PNG)
  → 半自动发布       (publish.py：封面+卡片多图帖，可选)
@@ -38,8 +38,10 @@ PDF
    文案本身分两步：你先写**不设字数上限的详细版**（`xhs_post_detailed.md`），交给用户**人工精简**成最终短文案，
    你负责把精简结果落成 `xhs_post.json`/`.md` 并再确认一次——**精简取舍权在用户，你不要自己抢着先压缩一遍**。
 4. **小红书是“准确、不夸大的科普”**：忠实反映论文贡献，口语化、有钩子，但**绝不编造数据或夸大结论**。
-5. **正文是固定的五问模板**（Step 3），**配图是你手写的 HTML 卡片、一问一图**（Step 4）——
+5. **正文是固定的五问模板**（Step 3），**配图是你手写的 HTML 卡片**（Step 4）——
    配图**不再是论文原图直出**，而是把原图与表格数据嵌进你设计的卡片里再截图。
+   卡片**每问至少一张、总数 5~8 张**（图集上限 9 张 − 封面 1 张）：信息多的问可以拆成连续几张，
+   五问之外还能加扩展卡（关键原图精读、更多实验结果、局限、上手信息…）。张数由内容决定，别凑数。
 
 ---
 
@@ -118,11 +120,12 @@ conda run -n paper2anything --no-capture-output \
    }
    ```
    - `important_figures` 必须含 `image_path`（取自 `parsed/figures_index.json`，指向真实存在的图）、`suitable_for_cover`、`importance_score`——封面默认走 API 生图（gpt-image-2），仅当 `OPENAI_API_KEY` 未配/不可用时回退本地合成、靠这几个字段复用原图；漏了则回退时无图 → 封面 `skipped`。
-   - `post_cards` **固定 5 条、与 Step 3 的五个问题一一对应**（一问一图）。每条的 `visuals` 是这张卡要嵌的素材，
+   - `post_cards` **每问至少一条、共 5~8 条**（上限 = 图集 9 张 − 封面 1 张）：`q` 填它属于哪一问
+     （同一问拆多张就写 `Q3a`/`Q3b`），五问之外的扩展卡 `q` 填 `PLUS`。每条的 `visuals` 是这张卡要嵌的素材，
      0~2 项：`kind` 取 `figure`（用 `figures_index` 的 `image_path`）或 `table`（用 `tables_index` 的 `image_path`
      截图，或 `table_html` 在卡里重排原生表格）。**没有合适素材就留空数组，那张卡走纯排版**——
      硬塞一张糊图凑数比留白更糟。只写你亲眼 `Read` 过的图。
-   - `card_design`：五张卡共用的设计 token（设计语言 + 配色 + 圆角），保证图集是一套而不是五张各画各的；
+   - `card_design`：所有卡共用的设计 token（设计语言 + 配色 + 圆角），保证图集是一套而不是每张各画各的；
      配色与 `cover_palette` 同源，让封面到末卡一个调性。
    - `cover_palette`（可选）：本地合成回退路径的配色，按论文领域选 `bg`(浅色打底) + `accent`(强调色)，标题字色会随底色深浅自动适配。参考浅色调：通用 `#F4F5F7`+`#2E86AB`、生物 `#EEF6F0`+`#2D8A5F`、物理数学 `#F1ECF8`+`#6A30C2`、工程 `#FBF0EC`+`#D85A3C`、社科 `#F4EEF2`+`#8A5A78`、化学 `#EAF4F8`+`#0E86C0`。
 3. 用 `AskUserQuestion` 与用户确认**选题角度**：这篇论文发小红书主打哪个亮点 / 用什么钩子 / 面向哪类读者。带着确认结果再写文案。
@@ -135,7 +138,7 @@ conda run -n paper2anything --no-capture-output \
 精简取舍是用户的活，你的活是把材料摊全。
 
 **正文走固定的五问模板**——每篇论文都是这五问、这个顺序，**问句原文照抄、不许改写**，
-在正文里作为小标题出现（这样才能和 Step 4 的一问一图卡片对齐）：
+在正文里作为小标题出现（这样才能和 Step 4 的卡片对齐，每问至少对应一张卡）：
 
 | # | 问题（原文照抄） | 答什么 |
 |---|---|---|
@@ -153,6 +156,9 @@ conda run -n paper2anything --no-capture-output \
 比最终版长很多也没关系，比如每问 300–600 字甚至更多）。**这一步不用照顾小红书正文的字数上限**，
 目的是给用户提供充分、准确的原材料，而不是替用户先压缩一遍——别自己悄悄按最终版的字数标准来写。
 
+`xhs_post_detailed.md` **不是一次性草稿、写完别丢**：Step 4 的配图卡片正是从它取料的
+（卡片文案要比正文详细，见 `references/card-design.md`），所以这里写全的细节后面还要用。
+
 写完把 `xhs_post_detailed.md` 的内容发给用户（或提示去看这个文件），明确告诉用户：
 **最终发布用的短文案由用户人工精简**，不是你自动压缩决定取舍；用户可以直接编辑这个文件，
 也可以在对话里告诉你想保留哪些点、砍掉哪些点。
@@ -163,17 +169,19 @@ conda run -n paper2anything --no-capture-output \
 `xhs_post.json` 和 `xhs_post.md`——**取舍判断权在用户，你不要自作主张地二次改写或再精简**，
 你的活是把用户定下的内容按下面的规则和 schema 整理规范：
 
-- **字数**：每问答案 **100–160 字**，正文主体（钩子 + 五问五答 + 结尾）**控制在 600–900 字**，
+- **字数**：每问答案 **100–160 字**，正文主体（钩子 + 五问五答）**控制在 600–900 字**，
   **开头的论文标题行另计**（标题不许为了省字数而缩写），不含标签。
   小红书正文上限 1000 字（`publish.py` 会 `[:1000]` 硬截断），**标题行 + 正文主体合计留 ≥100 字余量**，别顶格——
   英文标题往往 60–120 字符，先把它的实际长度扣掉再排五问预算。超了就砍五问，别砍标题、别靠缩写硬塞——
-  放不下的细节留给卡片。
+  **放不下的细节留给卡片**：正文是压缩版，Step 4 的卡片才是承载细节的一层（分工见 `references/card-design.md`），
+  所以这里砍掉的数据点、枚举、实验设置不算丢了，记下来到 Step 4 放进对应那张卡。
   **注意 Latin 词与数字按实际字符计**（`Qwen2.5-7B`＝10 字、`74.00` ＝5 字），中文写作直觉会严重低估；
   超预算时先删枚举（模型名清单、agent 名清单）再删修饰，别删可回溯的数字。
 - **结构**：**开头第一行放论文英文原标题**（`📄` 或同类 emoji 起头，原文照抄 `parsed/paper_meta.json` 的
   `title`，不翻译、不改写、不缩写；过长可折行但不许截断）→ 空行 → 1–2 句钩子（≤40 字）→ Q1…Q5 五段
-  → 结尾 1 句互动引导（如“你觉得这方法能用在哪？”）→ 标签。
+  → 标签。
   标题行让读者一眼知道是哪篇论文、方便自己去检索原文，**是硬性要求，不可省略**。
+  **正文写到 Q5 就结束**，不加结尾互动句、不写“你觉得…？”“评论区聊聊”这类引导语，Q5 之后直接接标签。
 - **每问小标题前带一个 emoji**，五个 emoji 各不相同，和卡片上的序号徽标呼应。
 - **风格**：口语化、易读、不端学术腔，但**忠实准确、不夸大、不编数据**。Q4 的每个数字都要能在 `parsed/` 里查到出处。
 - **标题** ≤20 字，吸睛：含核心价值、或数字、或对比、或悬念式提问。
@@ -192,11 +200,10 @@ conda run -n paper2anything --no-capture-output \
    {"q": "Q4", "question": "论文做了哪些实验？",     "answer": "..."},
    {"q": "Q5", "question": "论文有哪些启发？",       "answer": "..."}
  ],
- "ending": "结尾互动句",
- "body": "把 paper_title + hook + 五问五答 + ending + 标签拼成的完整正文（含 emoji/换行），第一行必须是论文标题",
+ "body": "把 paper_title + hook + 五问五答 + 标签拼成的完整正文（含 emoji/换行），第一行必须是论文标题，Q5 后不加互动句",
  "hashtags": ["#标签1", "#标签2"], "cover_text": "≤15字封面词", "paper_title_zh": "论文中文标题"}
 ```
-`qa` 是结构化来源、**必须是这 5 条**（`render_cards.py` 用它的条数校验一问一图）；`body` 是拼装好的成品，
+`qa` 是结构化来源、**必须是这 5 条**（`render_cards.py` 用它的条数当卡片数**下限**）；`body` 是拼装好的成品，
 **发布脚本只读 `body`**——两者要一致，改了 `qa` 记得同步 `body`。
 `body` 的**第一行必须是 `paper_title`**（前缀 emoji 可有）：发布只用 `body`，标题行漏在 `body` 外就等于没加。
 落稿后自查一次 `body` 开头，确认标题与 `parsed/paper_meta.json` 的 `title` 逐字一致。
@@ -228,18 +235,30 @@ conda run -n paper2anything --no-capture-output \
 逻辑：**默认用 `OPENAI_IMAGE_MODEL`（默认 `gpt-image-2`）生成竖版封面**，主标题大字用你传入的 `--title`、副标题小字用 `--subtitle`（留空才分别回退 `xhs_post.cover_text` / 论文标题）；未配 `OPENAI_API_KEY` 或 key 不可用时回退本地合成——复用 `understanding.important_figures` 里 `suitable_for_cover` 最高分的论文原图（叠加 `--title`，配色取 `cover_palette`）；两者都不可用则 `skipped`（不阻断流程）。产出 `cover.png`。
 **生图 API 单次可能要好几分钟（经中转可达 6~7 分钟）**——本命令的 Bash 超时设 ≥10 分钟（600000ms），别用默认 2 分钟，超时被杀时 `logs/` 不会留 cover_result.json。
 
-### 再做正文配图卡片（多图帖的第 2~6 张）
+### 再做正文配图卡片（多图帖的第 2 张起）
 
 配图**不是论文原图直出**，而是**你亲手写的 HTML 卡片**——把论文原图与表格数据嵌进你设计的版式里，
 再由脚本截成竖图。风格与 paper2html 一脉相承：先立设计概念，再排版。
 
 **① 先 `Read` `references/card-design.md`**（硬规格、字号下限、图片 CSS 铁律、表格取舍）。
 
-**② 用 `Write` 手写 `$WORKDIR/post_cards/p1.html … p5.html`**，一问一图、`pN` 对应 `QN`。要点（细节见规范）：
+**② 先定分镜、再手写 `$WORKDIR/post_cards/p1.html … pN.html`**：
+
+先列一份分镜（每张卡讲什么、用什么素材、属于哪一问），再动手写 HTML。
+**卡片数 5~8 张**——五问是**下限**（每问至少一张），上限 8 = 图集 9 张 − 封面 1 张。**只有 3 张的余量，花在最值钱的地方**。
+多出来的卡两种来源：
+**拆卡**（一问信息装不下，拆成连续几张，徽标写 `Q3 · 1/2`）、**扩展卡**（五问之外单独占一图的内容：
+关键原图精读、更多实验结果/消融、方法细节、局限与失败情形、代码与上手信息、一句话总结，徽标用 `＋`）。
+**张数由内容撑出来，不是凑上限**：一张空洞的卡比少一张更伤完读率。
+`p<N>` 按**阅读顺序连号**（不再是 `pN` 对 `QN`）。要点（细节见规范）：
 - 画布 `1080×1440` CSS px（3:4 竖版），四周留白 ≥64px、底部 ≥96px；
 - 图片用相对路径 `../figures/<文件名>` 引用（卡片在 `post_cards/`、图在 `figures/`），`alt` 非空；
-- 正文字号 ≥32px（画布上的 45px 到手机上只有 ~15px），每张卡文字 ≤120 字；
-- 五张共用 `understanding.card_design` 的设计 token，**外壳统一、内容形态各异**；
+- 正文字号 ≥32px（画布上的 45px 到手机上只有 ~15px）；
+- **卡片文案要比正文更详细，不是把 `xhs_post.body` 的答案原样搬上去**——正文被 1000 字硬顶压过，
+  卡片没有这个上限：从 `xhs_post_detailed.md` 对应那一问的长稿里挑正文塞不下的细节（具体数据点、
+  方法步骤、实验设置、边界条件）。字数分档：纯排版卡 180–260 字，带原图/表格的卡 100–150 字；
+  **单张超过约 300 字就拆成两张卡**，别缩字号、别硬塞；
+- 所有卡共用 `understanding.card_design` 的设计 token，**外壳统一、内容形态各异**；
 - 嵌原图**绝不同时钉死宽高**（会拉变形）；嵌表格可用截图保真，或用 `table_html` 砍到 3–4 列重排；
 - **别写 `html,body{overflow:hidden}`**——它只会把装不下的内容悄悄裁掉，让你看不见问题。
 
@@ -254,11 +273,13 @@ conda run -n paper2anything --no-capture-output \
 
 把 `post_cards/p<N>.html` 截成 `post_images/p<N>.png`（2160×2880，2x）并做渲染层自检，
 四项硬指标任一不过即 FAIL、退出码 1：**图裂**（`../figures/` 路径写错）、**图变形**（同时钉死宽高）、
-**竖向溢出**（内容装不下、被截掉）、**横向溢出**。卡片数与 `xhs_post.qa` 条数不符会告警（一问一图）。
+**竖向溢出**（内容装不下、被截掉）、**横向溢出**。另有两项张数告警：卡片数**少于** `xhs_post.qa` 条数
+（有问题没配到图）、卡片数**超过 8 张**（发布时第 9 张起会被 `publish.py` 静默丢掉）。
 FAIL 时 PNG 仍会写出，`Read` 看着改 HTML 后重跑（重跑会清掉旧 `p*`）。
 
 **④ 逐张 `Read` 亲眼过一遍**：脚本只管渲染层缺陷，好不好看、字够不够大、留白匀不匀、
-五张连起来是不是一套、和 `cover.png` 是不是一个调性——只有你的眼睛能判断。
+整套连起来是不是一套、拆卡的 `1/2` 标对了没、和 `cover.png` 是不是一个调性——只有你的眼睛能判断。
+顺手问一句：**有没有哪张删掉读者其实不损失信息？** 有就删——宁可少一张，别留水卡。
 
 ---
 
@@ -321,7 +342,7 @@ WORKDIR="$(dirname "$pdf_path")/.paper2anything/xhs/$(basename "${pdf_path%.*}")
 conda run -n paper2anything --no-capture-output \
   python "${SKILL_DIR}/scripts/publish.py" --workdir "$WORKDIR" --visibility "公开可见"
 ```
-图集自动取**封面 + `post_images/` 下卡片**（按 p1、p2… 排序，含封面最多 18 张）。返回「发布成功」即完成。
+图集自动取**封面 + `post_images/` 下卡片**（按 p1、p2… 数字序排，含封面最多 9 张，超出静默截断）。返回「发布成功」即完成。
 
 ---
 
@@ -358,7 +379,7 @@ cp "$WORKDIR/xhs_post.md" "$WORKDIR/xhs_post.json" "$DEST/"
 | `.paper2anything/xhs/<stem>/xhs_post_detailed.md` | 五问式详细版初稿（不设字数上限，供人工精简） | **你**（3a） |
 | `.paper2anything/xhs/<stem>/xhs_post.json` `xhs_post.md` | 人工精简后的五问式最终文案 | 用户精简、**你**落地成 schema（3b） |
 | `.paper2anything/xhs/<stem>/cover.png` | 封面 | cover |
-| `.paper2anything/xhs/<stem>/post_cards/` | 配图卡片源码 `p1.html … p5.html` | **你** |
+| `.paper2anything/xhs/<stem>/post_cards/` | 配图卡片源码 `p1.html … pN.html`（5~8 张） | **你** |
 | `.paper2anything/xhs/<stem>/post_images/` | 卡片渲染图 `p1.png … p5.png`（2160×2880） | render_cards |
 | `.paper2anything/xhs/<stem>/logs/` | 各脚本 `*_result.json` | 脚本 |
 | **`<pdf目录>/<stem>_xhs/`** | **成品归集**：`xhs_post.md` + `.json` + `cover.png` + `post_images/`，与 PDF 同级 | **你（Step 6）** |
@@ -372,12 +393,13 @@ cp "$WORKDIR/xhs_post.md" "$WORKDIR/xhs_post.json" "$DEST/"
 - **MinerU 解析失败**：核对 `.env` 的 `MINERU_API_TOKEN`（在 https://mineru.net 申请）；PDF 应 ≤200MB / ≤200 页；能访问 `mineru.net`。重跑 Step 1 即可（覆盖）。
 - **封面没生成（`skipped`）**：通常是既没配可用 `OPENAI_API_KEY`、又没有可复用的论文原图。配上 key 走 AI 生图，或确保 `understanding.important_figures` 有 `suitable_for_cover:true` 且 `image_path` 存在的图以供本地合成回退。
 - **发出去的正文没带论文标题**：`paper_title` 只填在字段里、没拼进 `body`——发布脚本只读 `body`，标题行必须是 `body` 的第一行；顺手核对它与 `parsed/paper_meta.json` 的 `title` 逐字一致（别用中文译名或缩写替代）。
-- **卡片没生成（`failed: post_cards 下无 p<N>.html`）**：卡片是**你手写**的，脚本只负责截图。先按 `references/card-design.md` 把 `$WORKDIR/post_cards/p1.html … p5.html` 写出来再跑。
+- **卡片没生成（`failed: post_cards 下无 p<N>.html`）**：卡片是**你手写**的，脚本只负责截图。先按 `references/card-design.md` 把 `$WORKDIR/post_cards/p1.html … pN.html` 写出来再跑。
 - **卡片渲染自检 FAIL**：
   - *图裂* → `<img src>` 必须是 `../figures/<文件名>`（卡片在 `post_cards/`、图在 `figures/`），文件名从 `figures_index.json`/`tables_index.json` 抄，别手打哈希名。
   - *图变形* → 同时钉死了 `width`+`height`（或定宽盒子里 `object-fit`）。只定一个轴，另一轴 `auto`。
   - *竖向溢出* → 内容装不下、被截掉。删字或缩图，别缩字号到 32px 以下；写了 `overflow:hidden` 也瞒不过自检（脚本量高度前会放开它），但会骗过你自己的眼睛，所以别写。
-- **卡片数与问题数不符（告警）**：一问一图，`post_cards/p<N>.html` 要与 `xhs_post.qa` 的 5 条一一对应。
+- **卡片数少于问题数（告警）**：每问至少一张卡，`xhs_post.qa` 的 5 条都得有对应卡片；缺哪问补哪问。
+- **卡片数超过 8 张（告警）**：图集上限 9 张（封面占 1 张），第 9 张卡起 `publish.py` 会静默丢掉——合并或删掉多的。
 - **表格没进 PIR**：`tables_index.json` 为空说明 MinerU 没识别出表格块；退一步从 `sections.json` 正文里取数字，自己在卡片里排版（数字照抄，不许编）。
 - **发布图集少图**：发布只认 `post_images/` 下的 `p<序号>.*`，且需要 `cover.png` 存在（封面 `skipped` 时 publish 直接报错）。
 - **发布步骤报错**：`未登录` → 按 `references/publish-guide.md` 完成登录（首次注意「新设备验证」）；`连不上 mcp` → 看 ① 是否成功起服务（二进制下载/启动失败查 `$XHS_MCP_DIR/mcp.log`）。**登录成功后须重启 mcp 才会加载 cookies**。不发布可跳过 Step 5、手动发产物。publish.py 非零退出（2=未登录、3=连不上）时 `conda run` 会附带打印一行 `ERROR conda.cli.main_run`——那只是退出码传播，不是脚本崩溃。

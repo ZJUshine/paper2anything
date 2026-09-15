@@ -17,6 +17,11 @@ from rich.text import Text
 
 console = Console()
 
+# ── 小红书平台硬上限（唯一出处，别在各脚本里各写一份，改了会漂）────────────────
+XHS_MAX_IMAGES = 9              # 图集上限（含封面）；publish.py 超出会截断
+XHS_MAX_TAGS = 10               # 话题上限；超出会被 mcp 静默截取前 10 个
+MAX_CARDS = XHS_MAX_IMAGES - 1  # 配图卡片上限 = 图集上限 − 封面 1 张
+
 
 def setup_logging(log_level: str = "INFO") -> logging.Logger:
     """配置日志系统"""

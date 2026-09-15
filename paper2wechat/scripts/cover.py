@@ -233,7 +233,7 @@ def generate_cover_ai(client, understanding: dict, title: str, output_path: Path
     print_info(f"封面 Prompt: {prompt[:200]}...")
     try:
         response = client.images.generate(
-            model=os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2"),
+            model=os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare"),
             prompt=prompt,
             size="1920x816",  # 横版 2.35:1（微信公众号最常用封面比例，≈900×383）
             quality="high",

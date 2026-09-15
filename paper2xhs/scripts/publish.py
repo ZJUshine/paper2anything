@@ -19,6 +19,8 @@ import requests
 import _env  # noqa: F401  # 兜底加载包根 .env（XHS_MCP_URL 等）
 
 from utils import (
+    XHS_MAX_IMAGES,
+    XHS_MAX_TAGS,
     load_json,
     print_error,
     print_info,
@@ -46,8 +48,7 @@ def check_login(mcp_url: str) -> tuple[bool, str | None]:
     return bool(data.get("is_logged_in")), data.get("username")
 
 
-XHS_MAX_IMAGES = 18  # 小红书图集上限
-XHS_MAX_TAGS = 10    # 小红书话题上限（超出会被 mcp 静默截取前 10 个）
+# XHS_MAX_IMAGES / XHS_MAX_TAGS 见 utils.py（平台上限的唯一出处）
 PUBLISH_TIMEOUT = 600  # 秒；浏览器自动化逐图上传 + 正文逐字键入，近千字正文需 ≥5 分钟
 
 
